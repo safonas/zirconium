@@ -13,6 +13,18 @@ printf "\n%s\n" "store-root=/etc/selinux" | tee -a /etc/selinux/semanage.conf
 cp -r "/var/lib/selinux/targeted/active" "/etc/selinux/targeted/"
 cp -r "/var/lib/selinux/final" "/etc/selinux/"
 
+# genhomedircon derives the home directory prefix from /etc/default/useradd
+# (HOME=/var/home on ostree layouts), but libselinux canonicalizes lookup paths
+# through file_contexts.subs_dist (/var/home -> /home) before matching. The
+# generated /var/home patterns therefore never match, and any relabel under
+# /var/home produces default_t, which breaks e.g. sshd pubkey auth (sshd cannot
+# read authorized_keys). Local rules with the original /home prefix take
+# precedence over the generated ones and survive first-boot homedirs
+# regeneration because they live in the policy store.
+semanage fcontext -a -t user_home_dir_t "/home/[^/]+"
+semanage fcontext -a -t user_home_t "/home/[^/]+/.+"
+semanage fcontext -a -t ssh_home_t "/home/[^/]+/\.ssh(/.*)?"
+
 stat "/etc/selinux/targeted/active/modules"
 stat "/etc/selinux/targeted/active/booleans.local"
 stat "/etc/selinux/targeted/active/file_contexts"
@@ -22,3 +34,4 @@ stat "/etc/selinux/targeted/active/modules/100/bootupd/hll"
 stat "/etc/selinux/targeted/active/modules/100/bootupd/lang_ext"
 
 grep -F -e "store-root=/etc/selinux" /etc/selinux/semanage.conf
+grep -F -e "/home/[^/]+/.+" "/etc/selinux/targeted/contexts/files/file_contexts.local"
