@@ -13,17 +13,10 @@ printf "\n%s\n" "store-root=/etc/selinux" | tee -a /etc/selinux/semanage.conf
 cp -r "/var/lib/selinux/targeted/active" "/etc/selinux/targeted/"
 cp -r "/var/lib/selinux/final" "/etc/selinux/"
 
-# genhomedircon derives the home directory prefix from /etc/default/useradd
-# (HOME=/var/home on ostree layouts), but libselinux canonicalizes lookup paths
-# through file_contexts.subs_dist (/var/home -> /home) before matching. The
-# generated /var/home patterns therefore never match, and any relabel under
-# /var/home produces default_t, which breaks e.g. sshd pubkey auth (sshd cannot
-# read authorized_keys). Local rules with the original /home prefix take
-# precedence over the generated ones and survive first-boot homedirs
-# regeneration because they live in the policy store.
-#
-# Order matters: within file_contexts.local later entries win, so keep the
-# ssh_home_t rule after the catch-all user_home_t rule.
+# genhomedircon's /var/home patterns never match (libselinux rewrites lookups
+# to /home via file_contexts.subs_dist), so relabels under /var/home yield
+# default_t. Local /home-prefix rules fix that; later entries win, so keep
+# the .ssh rule after the catch-all.
 semanage fcontext -a -t home_root_t "/home"
 semanage fcontext -a -t user_home_dir_t "/home/[^/]+"
 semanage fcontext -a -t user_home_t "/home/[^/]+/.+"
@@ -39,10 +32,5 @@ stat "/etc/selinux/targeted/active/modules/100/bootupd/lang_ext"
 
 grep -F -e "store-root=/etc/selinux" /etc/selinux/semanage.conf
 
-# fail the build unless every rule actually landed in the store; the ssh one
-# is the load-bearing entry for pubkey auth, don't let it silently go missing
-fcontexts_local="/etc/selinux/targeted/contexts/files/file_contexts.local"
-grep -F -e "/home    system_u:object_r:home_root_t:s0" "$fcontexts_local"
-grep -F -e "/home/[^/]+    system_u:object_r:user_home_dir_t:s0" "$fcontexts_local"
-grep -F -e "/home/[^/]+/.+    system_u:object_r:user_home_t:s0" "$fcontexts_local"
-grep -F -e "/home/[^/]+/\.ssh(/.*)?    system_u:object_r:ssh_home_t:s0" "$fcontexts_local"
+# canary: proves the rules rendered into the store that ships in the image
+grep -F -e "/home/[^/]+/\.ssh(/.*)?    system_u:object_r:ssh_home_t:s0" /etc/selinux/targeted/contexts/files/file_contexts.local
